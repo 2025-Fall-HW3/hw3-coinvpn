@@ -70,8 +70,24 @@ class MyPortfolio:
         """
         TODO: Complete Task 4 Below
         """
-        
-        
+
+        preferred = {"XLK": 0.7, "XLV": 0.3}
+        available_preferred = [asset for asset in preferred if asset in assets]
+
+        if available_preferred:
+            base_weights = pd.Series(0.0, index=assets)
+            total = sum(preferred[a] for a in available_preferred)
+            for asset in available_preferred:
+                base_weights[asset] = preferred[asset] / total
+        else:
+            base_weights = pd.Series(1 / len(assets), index=assets)
+
+        for date in self.price.index:
+            self.portfolio_weights.loc[date, assets] = base_weights.values
+
+        # Ensure excluded asset has zero allocation
+        self.portfolio_weights[self.exclude] = 0
+
         """
         TODO: Complete Task 4 Above
         """
