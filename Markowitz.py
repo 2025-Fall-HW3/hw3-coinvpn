@@ -63,6 +63,14 @@ class EqualWeightPortfolio:
         TODO: Complete Task 1 Below
         """
 
+        # Assign equal weights to all assets except the excluded one
+        num_assets = len(assets)
+        if num_assets > 0:
+            equal_weight = 1 / num_assets
+            self.portfolio_weights.loc[:, assets] = equal_weight
+
+        # Ensure the excluded asset has zero allocation
+        self.portfolio_weights[self.exclude] = 0
         """
         TODO: Complete Task 1 Above
         """
@@ -114,7 +122,22 @@ class RiskParityPortfolio:
         TODO: Complete Task 2 Below
         """
 
+        for i in range(self.lookback + 1, len(df)):
+            window_returns = df_returns[assets].iloc[i - self.lookback : i]
+            vol = window_returns.std().replace(0, np.nan)
+            inv_vol = 1 / vol
+            inv_vol.replace([np.inf, -np.inf], np.nan, inplace=True)
+            weights = inv_vol / inv_vol.sum()
 
+            if weights.isna().all():
+                weights = pd.Series(1 / len(assets), index=assets)
+            else:
+                weights = weights.fillna(0)
+
+            self.portfolio_weights.loc[df.index[i], assets] = weights.values
+
+        # Excluded asset should have zero allocation
+        self.portfolio_weights[self.exclude] = 0
 
         """
         TODO: Complete Task 2 Above
@@ -184,41 +207,29 @@ class MeanVariancePortfolio:
             env.setParam("DualReductions", 0)
             env.start()
             with gp.Model(env=env, name="portfolio") as model:
-                """
-                TODO: Complete Task 3 Below
-                """
+                w = model.addVars(n, name="w", lb=0, ub=1)
 
-                # Sample Code: Initialize Decision w and the Objective
-                # NOTE: You can modify the following code
-                w = model.addMVar(n, name="w", ub=1)
-                model.setObjective(w.sum(), gp.GRB.MAXIMIZE)
+                linear_term = gp.quicksum(mu[i] * w[i] for i in range(n))
+                quad_term = gp.QuadExpr()
+                for i in range(n):
+                    for j in range(n):
+                        if Sigma[i, j] != 0:
+                            quad_term.add(Sigma[i, j] * w[i] * w[j])
 
-                """
-                TODO: Complete Task 3 Above
-                """
+                model.setObjective(
+                    linear_term - 0.5 * gamma * quad_term, gp.GRB.MAXIMIZE
+                )
+                model.addConstr(gp.quicksum(w[i] for i in range(n)) == 1, name="budget")
+
                 model.optimize()
 
-                # Check if the status is INF_OR_UNBD (code 4)
-                if model.status == gp.GRB.INF_OR_UNBD:
-                    print(
-                        "Model status is INF_OR_UNBD. Reoptimizing with DualReductions set to 0."
-                    )
-                elif model.status == gp.GRB.INFEASIBLE:
-                    # Handle infeasible model
-                    print("Model is infeasible.")
-                elif model.status == gp.GRB.INF_OR_UNBD:
-                    # Handle infeasible or unbounded model
-                    print("Model is infeasible or unbounded.")
+                if model.status in (gp.GRB.OPTIMAL, gp.GRB.SUBOPTIMAL):
+                    return [w[i].X for i in range(n)]
 
-                if model.status == gp.GRB.OPTIMAL or model.status == gp.GRB.SUBOPTIMAL:
-                    # Extract the solution
-                    solution = []
-                    for i in range(n):
-                        var = model.getVarByName(f"w[{i}]")
-                        # print(f"w {i} = {var.X}")
-                        solution.append(var.X)
-
-        return solution
+        # Fallback to equal weight if optimization fails
+        if n == 0:
+            return []
+        return [1 / n] * n
 
     def calculate_portfolio_returns(self):
         # Ensure weights are calculated
